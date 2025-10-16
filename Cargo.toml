@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Postgres SQL storage backend for Nostr relays"
 keywords = ["nostr", "database", "postgres"]
+license = "MIT"
 
 [dependencies]
 deadpool = { version = "0.12", features = ["managed", "rt_tokio_1"] }
