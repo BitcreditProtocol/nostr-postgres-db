@@ -1,0 +1,23 @@
+[package]
+name = "nostr-postgres-db"
+version = "0.1.0"
+edition = "2024"
+description = "Postgres SQL storage backend for Nostr relays"
+keywords = ["nostr", "database", "postgres"]
+
+[dependencies]
+deadpool = { version = "0.12", features = ["managed", "rt_tokio_1"] }
+diesel = { version = "2", features = ["serde_json", "postgres"] }
+diesel-async = { version = "0.7", features = ["deadpool", "postgres"] }
+diesel_migrations = "2"
+nostr = { version = "0.43", features = ["std"] }
+nostr-database = { version = "0.43", features = ["flatbuf"] }
+tracing = { version = "0.1", default-features = false }
+
+[dev-dependencies]
+nostr-relay-builder = "0.43"
+tokio = { version = "1", default-features = false }
+tracing-subscriber = "0.3"
+
+[[example]]
+name = "postgres-relay"
