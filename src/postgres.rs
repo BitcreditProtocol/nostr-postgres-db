@@ -1,27 +1,23 @@
-use deadpool::managed::{Object, Pool};
-use diesel::QueryResult;
-use diesel::prelude::*;
-use diesel::result::{DatabaseErrorKind, Error as DieselError};
-use diesel_async::pooled_connection::AsyncDieselConnectionManager;
-use diesel_async::scoped_futures::ScopedFutureExt;
-use diesel_async::{AsyncConnection, AsyncPgConnection, RunQueryDsl};
+use deadpool::managed::Object;
+use deadpool_postgres::Pool;
+use deadpool_postgres::{Manager, ManagerConfig, RecyclingMethod};
 use nostr::event::*;
 use nostr::filter::Filter;
 use nostr_database::*;
 use prelude::BoxedFuture;
+use tokio_postgres::NoTls;
+use tokio_postgres::types::ToSql;
 
 use super::model::{EventDataDb, EventDb};
-use super::schema::postgres::{event_tags, events};
-use crate::query::{build_filter_query, event_by_id, with_limit};
+use crate::query::{filter_to_sql_params, with_limit};
 
 /// Shorthand for a database connection pool type
-pub type PostgresConnectionPool = Pool<AsyncDieselConnectionManager<AsyncPgConnection>>;
-pub type PostgresConnection = Object<AsyncDieselConnectionManager<AsyncPgConnection>>;
+pub type PostgresConnection = Object<deadpool_postgres::Manager>;
 
 /// Inplements NostrDatabase trait for a Postgres database backend
 #[derive(Clone)]
 pub struct NostrPostgres {
-    pool: PostgresConnectionPool,
+    pool: Pool,
 }
 
 impl NostrPostgres {
@@ -30,8 +26,8 @@ impl NostrPostgres {
     where
         C: AsRef<str>,
     {
-        crate::migrations::postgres::run_migrations(connection_string.as_ref())?;
-        let pool = postgres_connection_pool(connection_string).await?;
+        let pool = postgres_connection_pool(connection_string.as_ref()).await?;
+        crate::migrations::run_migrations(&pool).await?;
         Ok(Self { pool })
     }
 
@@ -44,33 +40,31 @@ impl NostrPostgres {
         event_data: EventDataDb,
     ) -> Result<SaveEventStatus, DatabaseError> {
         let mut db = self.get_connection().await?;
-        let result: QueryResult<bool> = db
-            .transaction(|c| {
-                async move {
-                    diesel::insert_into(events::table)
-                        .values(&event_data.event)
-                        .execute(c)
-                        .await?;
+        let tx = db.transaction().await.map_err(DatabaseError::backend)?;
+        tx.execute(r#"INSERT INTO events (id, pubkey, created_at, kind, payload, deleted) VALUES ($1, $2, $3, $4, $5, $6)"#, &[
+            &event_data.event.id,
+            &event_data.event.pubkey,
+            &event_data.event.created_at,
+            &event_data.event.kind,
+            &event_data.event.payload,
+            &event_data.event.deleted
+        ])
+            .await
+            .map_err(DatabaseError::backend)?;
 
-                    diesel::insert_into(event_tags::table)
-                        .values(&event_data.tags)
-                        .execute(c)
-                        .await?;
+        // could not find a reasonable way to have values escaped in batch insert
+        for tag in event_data.tags {
+            tx.execute(
+                r#"INSERT INTO event_tags (tag, tag_value, event_id) VALUES ($1, $2, $3)"#,
+                &[&tag.tag, &tag.tag_value, &tag.event_id],
+            )
+            .await
+            .map_err(DatabaseError::backend)?;
+        }
 
-                    Ok(true)
-                }
-                .scope_boxed()
-            })
-            .await;
-
-        match result {
+        match tx.commit().await {
             Ok(_) => Ok(SaveEventStatus::Success),
-            Err(e) => match e {
-                DieselError::DatabaseError(DatabaseErrorKind::UniqueViolation, _) => {
-                    Ok(SaveEventStatus::Rejected(RejectedReason::Duplicate))
-                }
-                e => Err(DatabaseError::backend(e)),
-            },
+            Err(_) => Ok(SaveEventStatus::Rejected(RejectedReason::Duplicate)),
         }
     }
 
@@ -78,12 +72,16 @@ impl NostrPostgres {
         &self,
         event_id: &EventId,
     ) -> Result<Option<EventDb>, DatabaseError> {
-        let res = event_by_id(event_id)
-            .first(&mut self.get_connection().await?)
+        let db = self.get_connection().await?;
+        let query =
+            r#"SELECT id, pubkey, created_at, kind, payload, deleted FROM events WHERE id = $1"#;
+
+        let result: Option<EventDb> = db
+            .query_opt(query, &[&event_id.as_bytes().to_vec()])
             .await
-            .optional()
-            .map_err(DatabaseError::backend)?;
-        Ok(res)
+            .map_err(DatabaseError::backend)?
+            .map(|row| row.into());
+        Ok(result)
     }
 }
 
@@ -140,12 +138,21 @@ impl NostrDatabase for NostrPostgres {
     /// Use `Filter::new()` or `Filter::default()` to count all events.
     fn count(&self, filter: Filter) -> BoxedFuture<'_, Result<usize, DatabaseError>> {
         Box::pin(async move {
-            let res: i64 = build_filter_query(filter)
-                .count()
-                .get_result(&mut self.get_connection().await?)
-                .await
-                .map_err(DatabaseError::backend)?;
-            Ok(res as usize)
+            let base_query = "SELECT DISTINCT count(*) FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
+            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let param_slice = &params
+                .iter()
+                .map(|x| x.as_ref() as &(dyn ToSql + Sync))
+                .collect::<Vec<_>>();
+            let db = self.get_connection().await?;
+            let result = match db.query_one(&sql, param_slice.as_slice()).await {
+                Ok(row) => {
+                    let count: i64 = row.get(0);
+                    count
+                }
+                Err(_) => 0,
+            };
+            Ok(result as usize)
         })
     }
 
@@ -153,12 +160,23 @@ impl NostrDatabase for NostrPostgres {
     fn query(&self, filter: Filter) -> BoxedFuture<'_, Result<Events, DatabaseError>> {
         let filter = with_limit(filter, 10000);
         Box::pin(async move {
+            let base_query = "SELECT DISTINCT events.* FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
             let mut events = Events::new(&filter);
-            let result = build_filter_query(filter.clone())
-                .select(EventDb::as_select())
-                .load(&mut self.get_connection().await?)
+            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let param_slice = &params
+                .iter()
+                .map(|x| x.as_ref() as &(dyn ToSql + Sync))
+                .collect::<Vec<_>>();
+
+            let result: Vec<EventDb> = self
+                .get_connection()
+                .await?
+                .query(&sql, param_slice.as_slice())
                 .await
-                .map_err(DatabaseError::backend)?;
+                .map_err(DatabaseError::backend)?
+                .into_iter()
+                .map(|e| e.into())
+                .collect();
 
             for item in result.into_iter() {
                 if let Ok(event) = Event::decode(&item.payload) {
@@ -173,11 +191,32 @@ impl NostrDatabase for NostrPostgres {
     fn delete(&self, filter: Filter) -> BoxedFuture<'_, Result<(), DatabaseError>> {
         let filter = with_limit(filter, 999);
         Box::pin(async move {
-            let filter = build_filter_query(filter);
-            diesel::update(events::table)
-                .set(events::deleted.eq(true))
-                .filter(events::id.eq_any(filter.select(events::id)))
-                .execute(&mut self.get_connection().await?)
+            let base_query = "SELECT DISTINCT events.id FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
+            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let param_slice = &params
+                .iter()
+                .map(|x| x.as_ref() as &(dyn ToSql + Sync))
+                .collect::<Vec<_>>();
+
+            let delete_ids: Vec<Box<Vec<u8>>> = self
+                .get_connection()
+                .await?
+                .query(&sql, param_slice.as_slice())
+                .await
+                .map_err(DatabaseError::backend)?
+                .into_iter()
+                .map(|e| Box::new(e.get(0)))
+                .collect();
+
+            let param_slice = &delete_ids
+                .iter()
+                .map(|x| x.as_ref() as &(dyn ToSql + Sync))
+                .collect::<Vec<_>>();
+
+            let update_query = "UPDATE events SET deleted = TRUE WHERE events.id = ANY (${})";
+            self.get_connection()
+                .await?
+                .execute(update_query, param_slice.as_slice())
                 .await
                 .map_err(DatabaseError::backend)?;
 
@@ -191,24 +230,10 @@ impl NostrDatabase for NostrPostgres {
 }
 
 /// Create a new [`NostrPostgres`] instance from an existing connection pool
-impl From<PostgresConnectionPool> for NostrPostgres {
-    fn from(pool: PostgresConnectionPool) -> Self {
+impl From<Pool> for NostrPostgres {
+    fn from(pool: Pool) -> Self {
         Self { pool }
     }
-}
-
-/// Create a connection pool for a Postgres database with the given connection string.
-pub async fn postgres_connection_pool<C>(
-    connection_string: C,
-) -> Result<PostgresConnectionPool, DatabaseError>
-where
-    C: AsRef<str>,
-{
-    let config = AsyncDieselConnectionManager::<AsyncPgConnection>::new(connection_string.as_ref());
-    let pool: PostgresConnectionPool = Pool::builder(config)
-        .build()
-        .map_err(|e| DatabaseError::Backend(Box::new(e)))?;
-    Ok(pool)
 }
 
 impl std::fmt::Debug for NostrPostgres {
@@ -217,4 +242,18 @@ impl std::fmt::Debug for NostrPostgres {
             .field("pool", &self.pool.status())
             .finish()
     }
+}
+
+pub async fn postgres_connection_pool(
+    connection_string: &str,
+) -> Result<deadpool_postgres::Pool, DatabaseError> {
+    let cfg: tokio_postgres::Config = connection_string.parse().map_err(DatabaseError::backend)?;
+    let mgr_config = ManagerConfig {
+        recycling_method: RecyclingMethod::Fast,
+    };
+    let pool = Pool::builder(Manager::from_config(cfg, NoTls, mgr_config))
+        .max_size(16)
+        .build()
+        .map_err(DatabaseError::backend)?;
+    Ok(pool)
 }
