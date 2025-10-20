@@ -4,6 +4,7 @@ use nostr_database::*;
 pub fn filter_to_sql_params(
     base_query: &str,
     filter: &Filter,
+    with_order: bool,
 ) -> (
     String,
     Vec<Box<dyn tokio_postgres::types::ToSql + Sync + Send>>,
@@ -46,13 +47,13 @@ pub fn filter_to_sql_params(
 
     if let Some(since) = filter.since {
         sql.push_str(&format!(" AND events.created_at >= ${}", idx));
-        params.push(Box::new(since.as_u64() as i64));
+        params.push(Box::new(i64::try_from(since.as_u64()).unwrap_or(i64::MAX)));
         idx += 1;
     }
 
     if let Some(until) = filter.until {
         sql.push_str(&format!(" AND events.created_at <= ${}", idx));
-        params.push(Box::new(until.as_u64() as i64));
+        params.push(Box::new(i64::try_from(until.as_u64()).unwrap_or(i64::MAX)));
         idx += 1;
     }
 
@@ -68,7 +69,9 @@ pub fn filter_to_sql_params(
         idx += 1;
     }
 
-    sql.push_str(" ORDER BY events.created_at DESC");
+    if with_order {
+        sql.push_str(" ORDER BY events.created_at DESC");
+    }
 
     if let Some(limit) = filter.limit {
         sql.push_str(&format!(" LIMIT ${}", idx));
@@ -106,8 +109,8 @@ mod tests {
     fn test_filter_to_sql_params_no_filters() {
         let filter = Filter::new();
         let base_query = "SELECT * FROM events";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert_eq!(sql, base_query);
         assert_eq!(params.len(), 0);
     }
@@ -117,8 +120,8 @@ mod tests {
         let event_id = EventId::all_zeros();
         let filter = Filter::new().ids([event_id]);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.id = ANY ($1)"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
         assert_eq!(params.len(), 1);
@@ -129,8 +132,8 @@ mod tests {
         let keys = Keys::generate();
         let filter = Filter::new().author(keys.public_key());
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.pubkey = ANY ($1)"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
         assert_eq!(params.len(), 1);
@@ -140,8 +143,8 @@ mod tests {
     fn test_filter_to_sql_params_with_kinds() {
         let filter = Filter::new().kinds([Kind::TextNote, Kind::Metadata]);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.kind = ANY ($1)"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
         assert_eq!(params.len(), 1);
@@ -152,8 +155,8 @@ mod tests {
         let timestamp = Timestamp::from(1234567890);
         let filter = Filter::new().since(timestamp);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.created_at >= $1"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
         assert_eq!(params.len(), 1);
@@ -164,8 +167,8 @@ mod tests {
         let timestamp = Timestamp::from(1234567890);
         let filter = Filter::new().until(timestamp);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.created_at <= $1"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
         assert_eq!(params.len(), 1);
@@ -175,9 +178,20 @@ mod tests {
     fn test_filter_to_sql_params_with_limit() {
         let filter = Filter::new().limit(50);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert!(sql.contains("LIMIT $1"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_limit_but_no_order() {
+        let filter = Filter::new().limit(50);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter, false);
+
+        assert!(!sql.contains("ORDER BY events.created_at DESC"));
         assert!(sql.contains("LIMIT $1"));
         assert_eq!(params.len(), 1);
     }
@@ -190,13 +204,12 @@ mod tests {
         let mut values = BTreeSet::new();
         values.insert("value1".to_string());
         values.insert("value2".to_string());
-        filter.generic_tags.insert(
-            SingleLetterTag::lowercase(Alphabet::E),
-            values
-        );
+        filter
+            .generic_tags
+            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND event_tags.tag = $1"));
         assert!(sql.contains("AND event_tags.tag_value = ANY ($2)"));
         assert!(sql.contains("ORDER BY events.created_at DESC"));
@@ -213,8 +226,8 @@ mod tests {
             .since(timestamp)
             .limit(100);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
-        let (sql, params) = filter_to_sql_params(base_query, &filter);
-        
+        let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
         assert!(sql.contains("AND events.pubkey = ANY ($1)"));
         assert!(sql.contains("AND events.kind = ANY ($2)"));
         assert!(sql.contains("AND events.created_at >= $3"));
@@ -227,7 +240,7 @@ mod tests {
     fn test_with_limit_sets_default() {
         let filter = Filter::new();
         let limited = with_limit(filter, 1000);
-        
+
         assert_eq!(limited.limit, Some(1000));
     }
 
@@ -235,7 +248,7 @@ mod tests {
     fn test_with_limit_preserves_existing() {
         let filter = Filter::new().limit(50);
         let limited = with_limit(filter, 1000);
-        
+
         assert_eq!(limited.limit, Some(50));
     }
 
@@ -282,10 +295,9 @@ mod tests {
         let mut filter = Filter::new();
         let mut values = BTreeSet::new();
         values.insert("value".to_string());
-        filter.generic_tags.insert(
-            SingleLetterTag::lowercase(Alphabet::E),
-            values
-        );
+        filter
+            .generic_tags
+            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
         assert!(has_filters(&filter));
     }
 
