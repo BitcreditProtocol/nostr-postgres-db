@@ -462,3 +462,84 @@ async fn test_event_with_multiple_tags() {
 
     cleanup_test_db(&test_db).await;
 }
+
+#[tokio::test]
+async fn test_from_pool_constructor() {
+    use nostr_postgres_db::{NostrPostgres, postgres_connection_pool};
+    use std::env;
+    use testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::postgres::Postgres;
+
+    // Check if DATABASE_URL is set (for CI or manual testing)
+    if let Ok(db_url) = env::var("DATABASE_URL") {
+        // Create a connection pool
+        let pool = postgres_connection_pool(&db_url)
+            .await
+            .expect("Failed to create connection pool");
+
+        // Create NostrPostgres from pool
+        let db = NostrPostgres::from_pool(pool)
+            .await
+            .expect("Failed to create NostrPostgres from pool");
+
+        // Test basic functionality
+        let keys = Keys::generate();
+        let event = EventBuilder::text_note("Test from_pool")
+            .sign_with_keys(&keys)
+            .unwrap();
+
+        let status = db.save_event(&event).await.unwrap();
+        assert_eq!(status, SaveEventStatus::Success);
+
+        let retrieved = db.event_by_id(&event.id).await.unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().id, event.id);
+
+        // Cleanup
+        let filter = Filter::new();
+        let _ = db.delete(filter).await;
+    } else {
+        // Start PostgreSQL container using testcontainers
+        let container = Postgres::default()
+            .start()
+            .await
+            .expect("Failed to start PostgreSQL container");
+
+        let host_port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("Failed to get container port");
+
+        let db_url = format!(
+            "postgres://postgres:postgres@127.0.0.1:{}/postgres",
+            host_port
+        );
+
+        // Create a connection pool
+        let pool = postgres_connection_pool(&db_url)
+            .await
+            .expect("Failed to create connection pool");
+
+        // Create NostrPostgres from pool
+        let db = NostrPostgres::from_pool(pool)
+            .await
+            .expect("Failed to create NostrPostgres from pool");
+
+        // Test basic functionality
+        let keys = Keys::generate();
+        let event = EventBuilder::text_note("Test from_pool")
+            .sign_with_keys(&keys)
+            .unwrap();
+
+        let status = db.save_event(&event).await.unwrap();
+        assert_eq!(status, SaveEventStatus::Success);
+
+        let retrieved = db.event_by_id(&event.id).await.unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().id, event.id);
+
+        // Cleanup
+        let filter = Filter::new();
+        let _ = db.delete(filter).await;
+    }
+}
