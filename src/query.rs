@@ -96,3 +96,202 @@ fn has_filters(filter: &Filter) -> bool {
         || !filter.generic_tags.is_empty()
         || filter.limit.is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nostr::prelude::*;
+
+    #[test]
+    fn test_filter_to_sql_params_no_filters() {
+        let filter = Filter::new();
+        let base_query = "SELECT * FROM events";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert_eq!(sql, base_query);
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_ids() {
+        let event_id = EventId::all_zeros();
+        let filter = Filter::new().ids([event_id]);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.id = ANY ($1)"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_authors() {
+        let keys = Keys::generate();
+        let filter = Filter::new().author(keys.public_key());
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.pubkey = ANY ($1)"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_kinds() {
+        let filter = Filter::new().kinds([Kind::TextNote, Kind::Metadata]);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.kind = ANY ($1)"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_since() {
+        let timestamp = Timestamp::from(1234567890);
+        let filter = Filter::new().since(timestamp);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.created_at >= $1"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_until() {
+        let timestamp = Timestamp::from(1234567890);
+        let filter = Filter::new().until(timestamp);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.created_at <= $1"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_limit() {
+        let filter = Filter::new().limit(50);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert!(sql.contains("LIMIT $1"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_with_generic_tags() {
+        use std::collections::BTreeSet;
+        // Create a filter with a custom tag by using the builder
+        let mut filter = Filter::new();
+        let mut values = BTreeSet::new();
+        values.insert("value1".to_string());
+        values.insert("value2".to_string());
+        filter.generic_tags.insert(
+            SingleLetterTag::lowercase(Alphabet::E),
+            values
+        );
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND event_tags.tag = $1"));
+        assert!(sql.contains("AND event_tags.tag_value = ANY ($2)"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_filter_to_sql_params_combined() {
+        let keys = Keys::generate();
+        let timestamp = Timestamp::from(1234567890);
+        let filter = Filter::new()
+            .author(keys.public_key())
+            .kinds([Kind::TextNote])
+            .since(timestamp)
+            .limit(100);
+        let base_query = "SELECT * FROM events WHERE deleted = FALSE";
+        let (sql, params) = filter_to_sql_params(base_query, &filter);
+        
+        assert!(sql.contains("AND events.pubkey = ANY ($1)"));
+        assert!(sql.contains("AND events.kind = ANY ($2)"));
+        assert!(sql.contains("AND events.created_at >= $3"));
+        assert!(sql.contains("ORDER BY events.created_at DESC"));
+        assert!(sql.contains("LIMIT $4"));
+        assert_eq!(params.len(), 4);
+    }
+
+    #[test]
+    fn test_with_limit_sets_default() {
+        let filter = Filter::new();
+        let limited = with_limit(filter, 1000);
+        
+        assert_eq!(limited.limit, Some(1000));
+    }
+
+    #[test]
+    fn test_with_limit_preserves_existing() {
+        let filter = Filter::new().limit(50);
+        let limited = with_limit(filter, 1000);
+        
+        assert_eq!(limited.limit, Some(50));
+    }
+
+    #[test]
+    fn test_has_filters_empty() {
+        let filter = Filter::new();
+        assert!(!has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_ids() {
+        let filter = Filter::new().ids([EventId::all_zeros()]);
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_authors() {
+        let keys = Keys::generate();
+        let filter = Filter::new().author(keys.public_key());
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_kinds() {
+        let filter = Filter::new().kind(Kind::TextNote);
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_since() {
+        let filter = Filter::new().since(Timestamp::from(1234567890));
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_until() {
+        let filter = Filter::new().until(Timestamp::from(1234567890));
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_tags() {
+        use std::collections::BTreeSet;
+        let mut filter = Filter::new();
+        let mut values = BTreeSet::new();
+        values.insert("value".to_string());
+        filter.generic_tags.insert(
+            SingleLetterTag::lowercase(Alphabet::E),
+            values
+        );
+        assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_has_filters_with_limit() {
+        let filter = Filter::new().limit(10);
+        assert!(has_filters(&filter));
+    }
+}

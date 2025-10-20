@@ -1,0 +1,51 @@
+{
+  "name": "Nostr Postgres DB",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspace",
+
+  // Features to add to the dev container
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest",
+      "profile": "default"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "username": "vscode",
+      "upgradePackages": true
+    }
+  },
+
+  // Configure tool-specific properties
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates",
+        "vadimcn.vscode-lldb",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        "rust-analyzer.checkOnSave.command": "clippy",
+        "rust-analyzer.cargo.allFeatures": true
+      }
+    }
+  },
+
+  // Use 'forwardPorts' to make a list of ports inside the container available locally
+  "forwardPorts": [5432],
+
+  // Set environment variables
+  "remoteEnv": {
+    "DATABASE_URL": "postgres://postgres:password@db:5432/nostr_test",
+    "RUST_BACKTRACE": "1"
+  },
+
+  // Use 'postCreateCommand' to run commands after the container is created
+  "postCreateCommand": "rustc --version && cargo --version",
+
+  // Comment out to connect as root instead
+  "remoteUser": "vscode"
+}
