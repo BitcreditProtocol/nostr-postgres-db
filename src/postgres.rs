@@ -32,6 +32,14 @@ impl NostrPostgres {
         Ok(Self { pool })
     }
 
+    /// Create a new [`NostrPostgres`] instance from an existing connection pool
+    ///
+    /// This method will run database migrations on the provided pool.
+    pub async fn from_pool(pool: Pool) -> Result<Self, DatabaseError> {
+        crate::migrations::run_migrations(&pool).await?;
+        Ok(Self { pool })
+    }
+
     pub(crate) async fn get_connection(&self) -> Result<PostgresConnection, DatabaseError> {
         self.pool.get().await.map_err(DatabaseError::backend)
     }

@@ -116,7 +116,10 @@ mod tests {
 
         assert_eq!(event_data.event.id, event.id.as_bytes().to_vec());
         assert_eq!(event_data.event.pubkey, event.pubkey.as_bytes().to_vec());
-        assert_eq!(event_data.event.created_at, event.created_at.as_u64() as i64);
+        assert_eq!(
+            event_data.event.created_at,
+            event.created_at.as_u64() as i64
+        );
         assert_eq!(event_data.event.kind, event.kind.as_u16() as i64);
         assert!(!event_data.event.deleted);
         assert!(!event_data.event.payload.is_empty());
@@ -138,7 +141,7 @@ mod tests {
         let event_data = EventDataDb::try_from(&event).unwrap();
 
         assert_eq!(event_data.tags.len(), 3);
-        
+
         // Check that tags are properly extracted
         let tag_types: Vec<String> = event_data.tags.iter().map(|t| t.tag.clone()).collect();
         assert!(tag_types.contains(&"p".to_string()));
@@ -167,7 +170,7 @@ mod tests {
         let keys = Keys::generate();
         let other_pubkey = Keys::generate().public_key();
         let event_id = EventId::all_zeros();
-        
+
         let event = EventBuilder::text_note("test")
             .tags([
                 Tag::public_key(other_pubkey),
@@ -179,10 +182,10 @@ mod tests {
             .unwrap();
 
         let tags = extract_tags(&event);
-        
+
         // Should have at least p, e, t, and d tags
         assert!(tags.len() >= 4);
-        
+
         let tag_types: Vec<String> = tags.iter().map(|t| t.tag.clone()).collect();
         assert!(tag_types.contains(&"p".to_string()));
         assert!(tag_types.contains(&"e".to_string()));
@@ -198,10 +201,10 @@ mod tests {
             .unwrap();
 
         let payload = encode_payload(&event);
-        
+
         // Should produce a non-empty payload
         assert!(!payload.is_empty());
-        
+
         // Should be able to decode the payload back
         let decoded = Event::decode(&payload).unwrap();
         assert_eq!(decoded.id, event.id);
