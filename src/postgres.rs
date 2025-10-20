@@ -52,14 +52,15 @@ impl NostrPostgres {
             .await
             .map_err(DatabaseError::backend)?;
 
-        // could not find a reasonable way to have values escaped in batch insert
-        for tag in event_data.tags {
-            tx.execute(
-                r#"INSERT INTO event_tags (tag, tag_value, event_id) VALUES ($1, $2, $3)"#,
-                &[&tag.tag, &tag.tag_value, &tag.event_id],
-            )
+        let insert_tags = tx
+            .prepare(r#"INSERT INTO event_tags (tag, tag_value, event_id) VALUES ($1, $2, $3)"#)
             .await
             .map_err(DatabaseError::backend)?;
+
+        for tag in event_data.tags {
+            tx.execute(&insert_tags, &[&tag.tag, &tag.tag_value, &tag.event_id])
+                .await
+                .map_err(DatabaseError::backend)?;
         }
 
         match tx.commit().await {
