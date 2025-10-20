@@ -7,6 +7,7 @@ use nostr_database::*;
 use prelude::BoxedFuture;
 use tokio_postgres::NoTls;
 use tokio_postgres::types::ToSql;
+use tracing::warn;
 
 use super::model::{EventDataDb, EventDb};
 use crate::query::{filter_to_sql_params, with_limit};
@@ -41,7 +42,7 @@ impl NostrPostgres {
     ) -> Result<SaveEventStatus, DatabaseError> {
         let mut db = self.get_connection().await?;
         let tx = db.transaction().await.map_err(DatabaseError::backend)?;
-        tx.execute(r#"INSERT INTO events (id, pubkey, created_at, kind, payload, deleted) VALUES ($1, $2, $3, $4, $5, $6)"#, &[
+        if tx.execute(r#"INSERT INTO events (id, pubkey, created_at, kind, payload, deleted) VALUES ($1, $2, $3, $4, $5, $6)"#, &[
             &event_data.event.id,
             &event_data.event.pubkey,
             &event_data.event.created_at,
@@ -49,24 +50,26 @@ impl NostrPostgres {
             &event_data.event.payload,
             &event_data.event.deleted
         ])
-            .await
-            .map_err(DatabaseError::backend)?;
+            .await.is_err() {
+            return Ok(SaveEventStatus::Rejected(RejectedReason::Duplicate));
+        }
 
-        let insert_tags = tx
+        let stmt = tx
             .prepare(r#"INSERT INTO event_tags (tag, tag_value, event_id) VALUES ($1, $2, $3)"#)
             .await
             .map_err(DatabaseError::backend)?;
 
         for tag in event_data.tags {
-            tx.execute(&insert_tags, &[&tag.tag, &tag.tag_value, &tag.event_id])
+            if let Err(e) = tx
+                .execute(&stmt, &[&tag.tag, &tag.tag_value, &tag.event_id])
                 .await
-                .map_err(DatabaseError::backend)?;
+            {
+                warn!("Failed to insert tag: {e}");
+            }
         }
 
-        match tx.commit().await {
-            Ok(_) => Ok(SaveEventStatus::Success),
-            Err(_) => Ok(SaveEventStatus::Rejected(RejectedReason::Duplicate)),
-        }
+        tx.commit().await.map_err(DatabaseError::backend)?;
+        Ok(SaveEventStatus::Success)
     }
 
     pub(crate) async fn event_by_id(
@@ -140,7 +143,7 @@ impl NostrDatabase for NostrPostgres {
     fn count(&self, filter: Filter) -> BoxedFuture<'_, Result<usize, DatabaseError>> {
         Box::pin(async move {
             let base_query = "SELECT DISTINCT count(*) FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
-            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let (sql, params) = filter_to_sql_params(base_query, &filter, false);
             let param_slice = &params
                 .iter()
                 .map(|x| x.as_ref() as &(dyn ToSql + Sync))
@@ -163,7 +166,8 @@ impl NostrDatabase for NostrPostgres {
         Box::pin(async move {
             let base_query = "SELECT DISTINCT events.* FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
             let mut events = Events::new(&filter);
-            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let (sql, params) = filter_to_sql_params(base_query, &filter, true);
+
             let param_slice = &params
                 .iter()
                 .map(|x| x.as_ref() as &(dyn ToSql + Sync))
@@ -193,31 +197,30 @@ impl NostrDatabase for NostrPostgres {
         let filter = with_limit(filter, 999);
         Box::pin(async move {
             let base_query = "SELECT DISTINCT events.id FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
-            let (sql, params) = filter_to_sql_params(base_query, &filter);
+            let (sql, params) = filter_to_sql_params(base_query, &filter, false);
             let param_slice = &params
                 .iter()
                 .map(|x| x.as_ref() as &(dyn ToSql + Sync))
                 .collect::<Vec<_>>();
 
-            let delete_ids: Vec<Box<Vec<u8>>> = self
+            let delete_ids: Vec<Vec<u8>> = self
                 .get_connection()
                 .await?
                 .query(&sql, param_slice.as_slice())
                 .await
                 .map_err(DatabaseError::backend)?
                 .into_iter()
-                .map(|e| Box::new(e.get(0)))
+                .map(|e| e.get(0))
                 .collect();
 
-            let param_slice = &delete_ids
-                .iter()
-                .map(|x| x.as_ref() as &(dyn ToSql + Sync))
-                .collect::<Vec<_>>();
+            if delete_ids.is_empty() {
+                return Ok(());
+            }
 
-            let update_query = "UPDATE events SET deleted = TRUE WHERE events.id = ANY (${})";
+            let update_query = "UPDATE events SET deleted = TRUE WHERE events.id = ANY ($1)";
             self.get_connection()
                 .await?
-                .execute(update_query, param_slice.as_slice())
+                .execute(update_query, &[&delete_ids])
                 .await
                 .map_err(DatabaseError::backend)?;
 

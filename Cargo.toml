@@ -19,8 +19,10 @@ deadpool-postgres = "0.14"
 
 [dev-dependencies]
 nostr-relay-builder = "0.43"
-tokio = { version = "1", default-features = false }
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = "0.3"
+testcontainers = "0.25"
+testcontainers-modules = { version = "0.13", features = ["postgres"] }
 
 [[example]]
 name = "postgres-relay"
