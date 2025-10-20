@@ -1,14 +1,11 @@
 use std::sync::{Mutex, OnceLock};
 
-use diesel::prelude::*;
 use nostr::event::Event;
 use nostr_database::{DatabaseError, FlatBufferBuilder, FlatBufferEncode};
-
-use crate::schema::postgres::{event_tags, events};
+use tokio_postgres::Row;
 
 /// DB representation of [`Event`]
-#[derive(Queryable, Selectable, Insertable, AsChangeset, Debug, Clone)]
-#[diesel(table_name = events)]
+#[derive(Debug, Clone)]
 pub struct EventDb {
     pub id: Vec<u8>,
     pub pubkey: Vec<u8>,
@@ -18,13 +15,35 @@ pub struct EventDb {
     pub deleted: bool,
 }
 
+impl From<Row> for EventDb {
+    fn from(row: Row) -> Self {
+        Self {
+            id: row.get(0),
+            pubkey: row.get(1),
+            created_at: row.get(2),
+            kind: row.get(3),
+            payload: row.get(4),
+            deleted: row.get(5),
+        }
+    }
+}
+
 /// DB representation of [`EventTag`]
-#[derive(Queryable, Selectable, Insertable, AsChangeset, Debug, Clone)]
-#[diesel(table_name = event_tags)]
+#[derive(Debug, Clone)]
 pub struct EventTagDb {
     pub tag: String,
     pub tag_value: String,
     pub event_id: Vec<u8>,
+}
+
+impl From<Row> for EventTagDb {
+    fn from(row: Row) -> Self {
+        Self {
+            tag: row.get(0),
+            tag_value: row.get(1),
+            event_id: row.get(2),
+        }
+    }
 }
 
 /// A data container for extracting data from [`Event`] and its tags
