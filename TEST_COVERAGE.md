@@ -138,17 +138,18 @@ Tests for boundary conditions and error scenarios:
 ### Test Utilities (`tests/common/mod.rs`)
 
 Helper functions for test setup and teardown:
-- `setup_test_db()` - Initialize test database connection
+- `setup_test_db()` - Initialize test database using testcontainers
 - `cleanup_test_db()` - Clean up test data
 - `create_test_event()` - Generate test events
 - `create_test_events()` - Generate multiple test events
 
-### Environment Configuration
+### Testcontainers Integration
 
-Tests use environment variable `DATABASE_URL` with fallback to:
-```
-postgres://postgres:password@localhost:5432/nostr_test
-```
+Tests use [testcontainers-rs](https://github.com/testcontainers/testcontainers-rs):
+- Automatically starts PostgreSQL containers for each test
+- No manual database setup required
+- Containers are cleaned up automatically
+- Falls back to `DATABASE_URL` environment variable if set
 
 ## Running Tests
 
@@ -193,12 +194,15 @@ cargo test -- --nocapture
 5. **Timestamp Handling**: All timestamp operations
 6. **Concurrency**: Basic concurrent operations
 
-### ⚠️ Requires External Database
+### ✅ Automatic Database Setup
 
-Integration tests and edge case tests require a running PostgreSQL instance. Use:
-- Dev-container (automatic setup)
-- Docker (manual setup)
-- Local PostgreSQL installation
+Integration tests and edge case tests use testcontainers-rs to automatically:
+- Start PostgreSQL containers
+- Run migrations
+- Execute tests
+- Clean up containers
+
+**Requirements:** Docker installed and running
 
 ### 📝 Not Covered
 

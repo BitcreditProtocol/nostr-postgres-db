@@ -22,49 +22,48 @@ These tests cover:
 
 ## Integration Tests
 
-Integration tests require a running PostgreSQL database. 
+Integration tests use [testcontainers-rs](https://github.com/testcontainers/testcontainers-rs) to automatically manage PostgreSQL containers. **No manual database setup is required!**
 
-### Setting up the Test Database
+### Automatic Container Management
 
-#### Option 1: Using Docker
+The integration tests will automatically:
+1. Start a PostgreSQL container using Docker
+2. Run migrations
+3. Execute tests
+4. Clean up the container when tests complete
 
-The easiest way to run integration tests is using the provided dev-container configuration:
+**Requirements:**
+- Docker installed and running
+- Docker daemon accessible to your user
 
-1. Open the project in VS Code
-2. Install the "Dev Containers" extension
-3. Click "Reopen in Container" when prompted
-4. The PostgreSQL database will be automatically configured
+### Manual Database Configuration (Optional)
 
-Or run PostgreSQL manually with Docker:
-
-```bash
-docker run -d \
-  --name nostr-postgres-test \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_DB=nostr_test \
-  -p 5432:5432 \
-  postgres:16-alpine
-```
-
-#### Option 2: Local PostgreSQL Installation
-
-1. Install PostgreSQL 16 or later
-2. Create a test database:
-
-```sql
-CREATE DATABASE nostr_test;
-```
-
-3. Set the connection string:
+If you prefer to use an existing database instead of testcontainers, set the `DATABASE_URL` environment variable:
 
 ```bash
 export DATABASE_URL="postgres://postgres:password@localhost:5432/nostr_test"
 ```
 
-### Running Integration Tests
+The tests will detect this and skip container creation, using your provided database instead.
 
-Once the database is set up:
+### Setting up Docker
+
+If you don't have Docker installed:
+
+**Linux:**
+```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+sudo usermod -aG docker $USER
+```
+
+**macOS:**
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+
+**Windows:**
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+
+### Running Integration Tests
 
 ```bash
 # Run all tests (unit + integration)
@@ -125,35 +124,53 @@ These tests verify end-to-end database operations:
    - Backend identification
    - Unsupported operations (wipe)
 
-## Continuous Integration
+## Development Environment
 
-The project includes dev-container configuration for consistent testing environments:
+The project includes dev-container configuration for VS Code development:
 
 - `.devcontainer/devcontainer.json` - VS Code dev container configuration
 - `.devcontainer/docker-compose.yml` - PostgreSQL service definition
 - `.devcontainer/Dockerfile` - Development environment setup
 
+This is separate from testcontainers and provides a complete development environment.
+
 ## Troubleshooting
 
-### Connection Errors
+### Docker Issues
 
-If tests fail with connection errors:
+If tests fail to start containers:
 
-1. Verify PostgreSQL is running:
+1. Verify Docker is running:
    ```bash
-   psql -U postgres -h localhost -p 5432 -d nostr_test
+   docker ps
    ```
 
-2. Check the DATABASE_URL environment variable:
+2. Check Docker daemon logs:
    ```bash
-   echo $DATABASE_URL
+   docker logs
    ```
 
-3. Ensure the database exists and is accessible
+3. Ensure your user has Docker permissions:
+   ```bash
+   docker run hello-world
+   ```
+
+### Using Manual Database
+
+If you prefer not to use testcontainers:
+
+1. Set the DATABASE_URL environment variable:
+   ```bash
+   export DATABASE_URL="postgres://postgres:password@localhost:5432/nostr_test"
+   ```
+
+2. Ensure PostgreSQL is running and accessible
+
+3. Run tests - they will use your database instead of containers
 
 ### Test Database Cleanup
 
-The integration tests automatically clean up after themselves, but if needed:
+With testcontainers, cleanup is automatic. If using a manual database:
 
 ```sql
 -- Connect to the test database
