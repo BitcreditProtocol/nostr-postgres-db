@@ -109,7 +109,17 @@ impl NostrDatabase for NostrPostgres {
         &'a self,
         event: &'a Event,
     ) -> BoxedFuture<'a, Result<SaveEventStatus, DatabaseError>> {
-        Box::pin(async move { self.save(EventDataDb::try_from(event)?).await })
+        Box::pin(async move {
+            let result = self.save(EventDataDb::try_from(event)?).await;
+            if event.kind.is_replaceable()
+                && let Err(e) = self
+                    .delete(Filter::new().author(event.pubkey).kind(event.kind))
+                    .await
+            {
+                warn!("Failed to delete old replaceable events: {e}");
+            }
+            result
+        })
     }
 
     /// Check event status by ID
