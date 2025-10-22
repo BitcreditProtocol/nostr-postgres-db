@@ -3,6 +3,7 @@ use deadpool_postgres::Pool;
 use deadpool_postgres::{Manager, ManagerConfig, RecyclingMethod};
 use nostr::event::*;
 use nostr::filter::Filter;
+use nostr::types::Timestamp;
 use nostr_database::*;
 use prelude::BoxedFuture;
 use tokio_postgres::NoTls;
@@ -113,7 +114,12 @@ impl NostrDatabase for NostrPostgres {
             let result = self.save(EventDataDb::try_from(event)?).await;
             if event.kind.is_replaceable()
                 && let Err(e) = self
-                    .delete(Filter::new().author(event.pubkey).kind(event.kind))
+                    .delete(
+                        Filter::new()
+                            .author(event.pubkey)
+                            .kind(event.kind)
+                            .until(Timestamp::from_secs(event.created_at.as_u64() - 1)),
+                    )
                     .await
             {
                 warn!("Failed to delete old replaceable events: {e}");
