@@ -232,7 +232,7 @@ async fn test_query_ordering() {
     let filter = Filter::new().author(keys.public_key());
     let events = test_db.db.query(filter).await.unwrap();
 
-    let timestamps: Vec<u64> = events.iter().map(|e| e.created_at.as_u64()).collect();
+    let timestamps: Vec<u64> = events.iter().map(|e| e.created_at.as_secs()).collect();
     assert_eq!(timestamps, vec![3000, 2000, 1000]);
 
     cleanup_test_db(&test_db).await;

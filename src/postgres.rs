@@ -115,7 +115,7 @@ impl NostrDatabase for NostrPostgres {
             let until = if event.created_at.is_zero() {
                 event.created_at
             } else {
-                Timestamp::from_secs(event.created_at.as_u64() - 1)
+                Timestamp::from_secs(event.created_at.as_secs() - 1)
             };
             if event.kind.is_replaceable()
                 && matches!(result, Ok(SaveEventStatus::Success))
