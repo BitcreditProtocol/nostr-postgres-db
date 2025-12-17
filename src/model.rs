@@ -60,7 +60,7 @@ impl TryFrom<&Event> for EventDataDb {
             event: EventDb {
                 id: value.id.as_bytes().to_vec(),
                 pubkey: value.pubkey.as_bytes().to_vec(),
-                created_at: value.created_at.as_u64() as i64,
+                created_at: value.created_at.as_secs() as i64,
                 kind: value.kind.as_u16() as i64,
                 payload: encode_payload(value),
                 deleted: false,
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(event_data.event.pubkey, event.pubkey.as_bytes().to_vec());
         assert_eq!(
             event_data.event.created_at,
-            event.created_at.as_u64() as i64
+            event.created_at.as_secs() as i64
         );
         assert_eq!(event_data.event.kind, event.kind.as_u16() as i64);
         assert!(!event_data.event.deleted);

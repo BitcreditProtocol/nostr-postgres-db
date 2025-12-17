@@ -47,13 +47,13 @@ pub fn filter_to_sql_params(
 
     if let Some(since) = filter.since {
         sql.push_str(&format!(" AND events.created_at >= ${}", idx));
-        params.push(Box::new(i64::try_from(since.as_u64()).unwrap_or(i64::MAX)));
+        params.push(Box::new(i64::try_from(since.as_secs()).unwrap_or(i64::MAX)));
         idx += 1;
     }
 
     if let Some(until) = filter.until {
         sql.push_str(&format!(" AND events.created_at <= ${}", idx));
-        params.push(Box::new(i64::try_from(until.as_u64()).unwrap_or(i64::MAX)));
+        params.push(Box::new(i64::try_from(until.as_secs()).unwrap_or(i64::MAX)));
         idx += 1;
     }
 
