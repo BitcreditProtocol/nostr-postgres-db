@@ -1,0 +1,77 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ "**" ]
+
+permissions:
+  contents: read
+  security-events: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Free up disk space
+        run: |
+          echo "Before cleanup:"
+          df -h
+          docker system prune -a -f
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo apt-get clean
+          sudo apt-get autoremove -y
+          echo "After cleanup:"
+          df -h
+
+      - name: Switch rust version
+        run: rustup default stable
+
+      - name: Update rust
+        run: rustup update
+
+      - name: Add rustup components
+        run: rustup component add clippy rustfmt
+
+      - name: Install required cargo
+        run: cargo install cargo-deny clippy-sarif sarif-fmt
+
+      - name: Activate cache
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          prefix-key: "bcr-relay"
+
+      - name: Check
+        run: cargo check --verbose
+        continue-on-error: true
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+        continue-on-error: true
+
+      - name: Clippy
+        run:
+          cargo clippy
+          --verbose
+          --all-features
+          --message-format=json | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+
+      - name: Cargo deny
+        run: cargo deny check
+        continue-on-error: true
+
+      - name: Build
+        run: cargo build --verbose
+
+      - name: Upload analysis results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true
