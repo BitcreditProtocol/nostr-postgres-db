@@ -11,7 +11,10 @@ use tokio_postgres::types::ToSql;
 use tracing::warn;
 
 use super::model::{EventDataDb, EventDb};
-use crate::query::{filter_to_sql_params, with_limit};
+use crate::query::{
+    count_query_for_filter, filter_to_sql_params, select_event_ids_query_for_filter,
+    select_events_query_for_filter, with_limit,
+};
 
 /// Shorthand for a database connection pool type
 pub type PostgresConnection = Object<deadpool_postgres::Manager>;
@@ -172,7 +175,7 @@ impl NostrDatabase for NostrPostgres {
     /// Use `Filter::new()` or `Filter::default()` to count all events.
     fn count(&self, filter: Filter) -> BoxedFuture<'_, Result<usize, DatabaseError>> {
         Box::pin(async move {
-            let base_query = "SELECT DISTINCT count(*) FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
+            let base_query = count_query_for_filter(&filter);
             let (sql, params) = filter_to_sql_params(base_query, &filter, false);
             let param_slice = &params
                 .iter()
@@ -194,7 +197,7 @@ impl NostrDatabase for NostrPostgres {
     fn query(&self, filter: Filter) -> BoxedFuture<'_, Result<Events, DatabaseError>> {
         let filter = with_limit(filter, 10000);
         Box::pin(async move {
-            let base_query = "SELECT DISTINCT events.* FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
+            let base_query = select_events_query_for_filter(&filter);
             let mut events = Events::new(&filter);
             let (sql, params) = filter_to_sql_params(base_query, &filter, true);
 
@@ -226,7 +229,7 @@ impl NostrDatabase for NostrPostgres {
     fn delete(&self, filter: Filter) -> BoxedFuture<'_, Result<(), DatabaseError>> {
         let filter = with_limit(filter, 999);
         Box::pin(async move {
-            let base_query = "SELECT DISTINCT events.id FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE";
+            let base_query = select_event_ids_query_for_filter(&filter);
             let (sql, params) = filter_to_sql_params(base_query, &filter, false);
             let param_slice = &params
                 .iter()
