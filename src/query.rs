@@ -81,6 +81,30 @@ pub fn filter_to_sql_params(
     (sql, params)
 }
 
+pub fn count_query_for_filter(filter: &Filter) -> &'static str {
+    if uses_tag_filters(filter) {
+        "SELECT count(DISTINCT events.id) FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+    } else {
+        "SELECT count(*) FROM events WHERE events.deleted = FALSE"
+    }
+}
+
+pub fn select_events_query_for_filter(filter: &Filter) -> &'static str {
+    if uses_tag_filters(filter) {
+        "SELECT DISTINCT events.* FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+    } else {
+        "SELECT events.* FROM events WHERE events.deleted = FALSE"
+    }
+}
+
+pub fn select_event_ids_query_for_filter(filter: &Filter) -> &'static str {
+    if uses_tag_filters(filter) {
+        "SELECT DISTINCT events.id FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+    } else {
+        "SELECT events.id FROM events WHERE events.deleted = FALSE"
+    }
+}
+
 /// sets the given default limit on a Nostr filter if not set
 pub fn with_limit(filter: Filter, default_limit: usize) -> Filter {
     if filter.limit.is_none() {
@@ -98,6 +122,10 @@ fn has_filters(filter: &Filter) -> bool {
         || filter.until.is_some()
         || !filter.generic_tags.is_empty()
         || filter.limit.is_some()
+}
+
+fn uses_tag_filters(filter: &Filter) -> bool {
+    !filter.generic_tags.is_empty()
 }
 
 #[cfg(test)]
@@ -305,5 +333,95 @@ mod tests {
     fn test_has_filters_with_limit() {
         let filter = Filter::new().limit(10);
         assert!(has_filters(&filter));
+    }
+
+    #[test]
+    fn test_count_query_for_filter_without_tags() {
+        let filter = Filter::new().kind(Kind::TextNote);
+        let sql = count_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT count(*) FROM events WHERE events.deleted = FALSE"
+        );
+    }
+
+    #[test]
+    fn test_count_query_for_filter_with_tags() {
+        use std::collections::BTreeSet;
+
+        let mut filter = Filter::new();
+        let mut values = BTreeSet::new();
+        values.insert("value".to_string());
+        filter
+            .generic_tags
+            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+
+        let sql = count_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT count(DISTINCT events.id) FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        );
+    }
+
+    #[test]
+    fn test_select_events_query_for_filter_without_tags() {
+        let filter = Filter::new().limit(25);
+        let sql = select_events_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT events.* FROM events WHERE events.deleted = FALSE"
+        );
+    }
+
+    #[test]
+    fn test_select_events_query_for_filter_with_tags() {
+        use std::collections::BTreeSet;
+
+        let mut filter = Filter::new();
+        let mut values = BTreeSet::new();
+        values.insert("value".to_string());
+        filter
+            .generic_tags
+            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+
+        let sql = select_events_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT DISTINCT events.* FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        );
+    }
+
+    #[test]
+    fn test_select_event_ids_query_for_filter_without_tags() {
+        let filter = Filter::new().author(Keys::generate().public_key());
+        let sql = select_event_ids_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT events.id FROM events WHERE events.deleted = FALSE"
+        );
+    }
+
+    #[test]
+    fn test_select_event_ids_query_for_filter_with_tags() {
+        use std::collections::BTreeSet;
+
+        let mut filter = Filter::new();
+        let mut values = BTreeSet::new();
+        values.insert("value".to_string());
+        filter
+            .generic_tags
+            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+
+        let sql = select_event_ids_query_for_filter(&filter);
+
+        assert_eq!(
+            sql,
+            "SELECT DISTINCT events.id FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        );
     }
 }
