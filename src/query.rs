@@ -83,7 +83,7 @@ pub fn filter_to_sql_params(
 
 pub fn count_query_for_filter(filter: &Filter) -> &'static str {
     if uses_tag_filters(filter) {
-        "SELECT count(DISTINCT events.id) FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        "SELECT count(DISTINCT events.id) FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
     } else {
         "SELECT count(*) FROM events WHERE events.deleted = FALSE"
     }
@@ -91,7 +91,7 @@ pub fn count_query_for_filter(filter: &Filter) -> &'static str {
 
 pub fn select_events_query_for_filter(filter: &Filter) -> &'static str {
     if uses_tag_filters(filter) {
-        "SELECT DISTINCT events.* FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        "SELECT DISTINCT events.* FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
     } else {
         "SELECT events.* FROM events WHERE events.deleted = FALSE"
     }
@@ -99,7 +99,7 @@ pub fn select_events_query_for_filter(filter: &Filter) -> &'static str {
 
 pub fn select_event_ids_query_for_filter(filter: &Filter) -> &'static str {
     if uses_tag_filters(filter) {
-        "SELECT DISTINCT events.id FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+        "SELECT DISTINCT events.id FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
     } else {
         "SELECT events.id FROM events WHERE events.deleted = FALSE"
     }
@@ -361,7 +361,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT count(DISTINCT events.id) FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+            "SELECT count(DISTINCT events.id) FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
         );
     }
 
@@ -391,7 +391,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT DISTINCT events.* FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+            "SELECT DISTINCT events.* FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
         );
     }
 
@@ -421,7 +421,7 @@ mod tests {
 
         assert_eq!(
             sql,
-            "SELECT DISTINCT events.id FROM events LEFT JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
+            "SELECT DISTINCT events.id FROM events INNER JOIN event_tags ON events.id = event_tags.event_id WHERE events.deleted = FALSE"
         );
     }
 }
