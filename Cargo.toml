@@ -23,7 +23,7 @@ tokio = { version = "1", default-features = false, features = [
   "rt-multi-thread",
 ] }
 tracing-subscriber = "0.3"
-testcontainers = "0.26"
+testcontainers = "0.28"
 testcontainers-modules = { version = "0.14", features = ["postgres"] }
 
 [[example]]
