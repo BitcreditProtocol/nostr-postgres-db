@@ -7,7 +7,6 @@ keywords = ["nostr", "database", "postgres"]
 license = "MIT"
 
 [dependencies]
-deadpool = { version = "0.12", features = ["managed", "rt_tokio_1"] }
 nostr = { version = "0.44", features = ["std"] }
 nostr-database = { version = "0.44", features = ["flatbuf"] }
 tracing = { version = "0.1", default-features = false }

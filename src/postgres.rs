@@ -1,6 +1,4 @@
-use deadpool::managed::Object;
-use deadpool_postgres::Pool;
-use deadpool_postgres::{Manager, ManagerConfig, RecyclingMethod};
+use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod};
 use nostr::event::*;
 use nostr::filter::Filter;
 use nostr::types::Timestamp;
@@ -16,8 +14,8 @@ use crate::query::{
     select_events_query_for_filter, with_limit,
 };
 
-/// Shorthand for a database connection pool type
-pub type PostgresConnection = Object<deadpool_postgres::Manager>;
+/// Shorthand for a pooled database connection
+pub type PostgresConnection = Object;
 
 /// Inplements NostrDatabase trait for a Postgres database backend
 #[derive(Clone)]
