@@ -25,16 +25,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Free up disk space
-        run: |
-          echo "Before cleanup:"
-          df -h
-          docker system prune -a -f
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo apt-get clean
-          sudo apt-get autoremove -y
-          echo "After cleanup:"
-          df -h
+        uses: BitcreditProtocol/.github/.github/actions/free-disk-space@6de4960af50d86d1d76a813b27a9a700a68da7c8 # v1.0.0
 
       - name: Switch rust version
         run: rustup default stable
