@@ -21,7 +21,8 @@ pub struct TestDatabase {
 /// Start a throwaway Postgres container and return it together with its connection string
 ///
 /// This is what `testcontainers_modules::postgres::Postgres` used to do for us: the
-/// official image with `postgres` as user, password and database name. The image
+/// official image with `postgres` as user, password and database name, and `fsync`
+/// switched off because durability buys nothing in a throwaway container. The image
 /// starts a temporary server during initialisation (its log goes to stdout) and the
 /// real one afterwards (logging to stderr), so both streams have to report readiness.
 pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
@@ -33,6 +34,7 @@ pub async fn start_postgres() -> (ContainerAsync<GenericImage>, String) {
         .with_env_var("POSTGRES_DB", "postgres")
         .with_env_var("POSTGRES_USER", "postgres")
         .with_env_var("POSTGRES_PASSWORD", "postgres")
+        .with_cmd(["-c", "fsync=off"])
         .start()
         .await
         .expect("Failed to start PostgreSQL container");

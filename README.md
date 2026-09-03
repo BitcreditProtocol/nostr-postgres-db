@@ -12,7 +12,7 @@ The code was extracted from the Nostr SDK; the MIT licence and its copyright
 
 ## Status
 
-Version `0.1.1`, Rust edition 2024. **Not published on crates.io** — depend on it by
+Version `0.2.0`, Rust edition 2024. **Not published on crates.io** — depend on it by
 path or git reference.
 
 ## Public API

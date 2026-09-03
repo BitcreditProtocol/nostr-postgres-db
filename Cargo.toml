@@ -1,6 +1,6 @@
 [package]
 name = "nostr-postgres-db"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 description = "Postgres SQL storage backend for Nostr relays"
 keywords = ["nostr", "database", "postgres"]
