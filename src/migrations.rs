@@ -1,6 +1,6 @@
-use nostr_database::DatabaseError;
+use nostr_database::error::Error;
 
-pub async fn run_migrations(pool: &deadpool_postgres::Pool) -> Result<(), DatabaseError> {
+pub async fn run_migrations(pool: &deadpool_postgres::Pool) -> Result<(), Error> {
     run_query(
         pool,
         r#"
@@ -70,12 +70,12 @@ pub async fn run_migrations(pool: &deadpool_postgres::Pool) -> Result<(), Databa
     Ok(())
 }
 
-async fn run_query(pool: &deadpool_postgres::Pool, query: &str) -> Result<(), DatabaseError> {
+async fn run_query(pool: &deadpool_postgres::Pool, query: &str) -> Result<(), Error> {
     pool.get()
         .await
-        .map_err(DatabaseError::backend)?
+        .map_err(Error::migration)?
         .execute(query, &[])
         .await
-        .map_err(DatabaseError::backend)?;
+        .map_err(Error::migration)?;
     Ok(())
 }

@@ -10,8 +10,8 @@ async fn test_save_and_retrieve_event() {
     let test_db = setup_test_db().await;
     let keys = Keys::generate();
 
-    let event = EventBuilder::text_note("Hello Nostr!")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "Hello Nostr!")
+        .finalize(&keys)
         .unwrap();
 
     // Save event
@@ -33,8 +33,8 @@ async fn test_save_duplicate_event() {
     let test_db = setup_test_db().await;
     let keys = Keys::generate();
 
-    let event = EventBuilder::text_note("Test duplicate")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "Test duplicate")
+        .finalize(&keys)
         .unwrap();
 
     // Save event first time
@@ -53,8 +53,8 @@ async fn test_check_id_saved() {
     let test_db = setup_test_db().await;
     let keys = Keys::generate();
 
-    let event = EventBuilder::text_note("Test check ID")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "Test check ID")
+        .finalize(&keys)
         .unwrap();
 
     // Check status before saving
@@ -76,8 +76,8 @@ async fn test_check_id_deleted() {
     let test_db = setup_test_db().await;
     let keys = Keys::generate();
 
-    let event = EventBuilder::text_note("Test delete")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "Test delete")
+        .finalize(&keys)
         .unwrap();
 
     // Save and delete event
@@ -99,11 +99,11 @@ async fn test_query_by_author() {
     let keys2 = Keys::generate();
 
     // Create events from two different authors
-    let event1 = EventBuilder::text_note("From author 1")
-        .sign_with_keys(&keys1)
+    let event1 = EventBuilder::new(Kind::TextNote, "From author 1")
+        .finalize(&keys1)
         .unwrap();
-    let event2 = EventBuilder::text_note("From author 2")
-        .sign_with_keys(&keys2)
+    let event2 = EventBuilder::new(Kind::TextNote, "From author 2")
+        .finalize(&keys2)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -125,11 +125,11 @@ async fn test_query_by_kinds() {
     let keys = Keys::generate();
 
     // Create events of different kinds
-    let event1 = EventBuilder::text_note("Text note")
-        .sign_with_keys(&keys)
+    let event1 = EventBuilder::new(Kind::TextNote, "Text note")
+        .finalize(&keys)
         .unwrap();
-    let event2 = EventBuilder::metadata(&Metadata::new())
-        .sign_with_keys(&keys)
+    let event2 = EventBuilder::new(Kind::Metadata, "{}")
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -151,14 +151,14 @@ async fn test_query_by_ids() {
     let keys = Keys::generate();
 
     // Create multiple events
-    let event1 = EventBuilder::text_note("Event 1")
-        .sign_with_keys(&keys)
+    let event1 = EventBuilder::new(Kind::TextNote, "Event 1")
+        .finalize(&keys)
         .unwrap();
-    let event2 = EventBuilder::text_note("Event 2")
-        .sign_with_keys(&keys)
+    let event2 = EventBuilder::new(Kind::TextNote, "Event 2")
+        .finalize(&keys)
         .unwrap();
-    let event3 = EventBuilder::text_note("Event 3")
-        .sign_with_keys(&keys)
+    let event3 = EventBuilder::new(Kind::TextNote, "Event 3")
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -184,12 +184,12 @@ async fn test_query_by_since() {
     let keys = Keys::generate();
 
     // Create event with specific timestamp
-    let old_event = EventBuilder::text_note("Old event")
+    let old_event = EventBuilder::new(Kind::TextNote, "Old event")
         .custom_created_at(Timestamp::from(1000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let new_event = EventBuilder::text_note("New event")
-        .sign_with_keys(&keys)
+    let new_event = EventBuilder::new(Kind::TextNote, "New event")
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&old_event).await.unwrap();
@@ -213,13 +213,13 @@ async fn test_query_by_until() {
     let keys = Keys::generate();
 
     // Create event with specific timestamp
-    let old_event = EventBuilder::text_note("Old event")
+    let old_event = EventBuilder::new(Kind::TextNote, "Old event")
         .custom_created_at(Timestamp::from(1000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let new_event = EventBuilder::text_note("New event")
+    let new_event = EventBuilder::new(Kind::TextNote, "New event")
         .custom_created_at(Timestamp::from(3000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&old_event).await.unwrap();
@@ -244,8 +244,8 @@ async fn test_query_with_limit() {
 
     // Create multiple events
     for i in 0..10 {
-        let event = EventBuilder::text_note(format!("Event {}", i))
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, format!("Event {}", i))
+            .finalize(&keys)
             .unwrap();
         test_db.db.save_event(&event).await.unwrap();
     }
@@ -266,12 +266,12 @@ async fn test_query_by_tags() {
     let tagged_pubkey = Keys::generate().public_key();
 
     // Create event with tag
-    let event_with_tag = EventBuilder::text_note("Tagged event")
+    let event_with_tag = EventBuilder::new(Kind::TextNote, "Tagged event")
         .tags([Tag::public_key(tagged_pubkey)])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let event_without_tag = EventBuilder::text_note("Untagged event")
-        .sign_with_keys(&keys)
+    let event_without_tag = EventBuilder::new(Kind::TextNote, "Untagged event")
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event_with_tag).await.unwrap();
@@ -304,8 +304,8 @@ async fn test_count_events() {
 
     // Add some events
     for i in 0..5 {
-        let event = EventBuilder::text_note(format!("Event {}", i))
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, format!("Event {}", i))
+            .finalize(&keys)
             .unwrap();
         test_db.db.save_event(&event).await.unwrap();
     }
@@ -327,8 +327,8 @@ async fn test_delete_events() {
     let keys = Keys::generate();
 
     // Create and save event
-    let event = EventBuilder::text_note("To be deleted")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "To be deleted")
+        .finalize(&keys)
         .unwrap();
     test_db.db.save_event(&event).await.unwrap();
 
@@ -354,11 +354,11 @@ async fn test_delete_by_author() {
     let keys2 = Keys::generate();
 
     // Create events from two authors
-    let event1 = EventBuilder::text_note("Author 1")
-        .sign_with_keys(&keys1)
+    let event1 = EventBuilder::new(Kind::TextNote, "Author 1")
+        .finalize(&keys1)
         .unwrap();
-    let event2 = EventBuilder::text_note("Author 2")
-        .sign_with_keys(&keys2)
+    let event2 = EventBuilder::new(Kind::TextNote, "Author 2")
+        .finalize(&keys2)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -385,18 +385,18 @@ async fn test_complex_query() {
     let keys = Keys::generate();
 
     // Create various events
-    let event1 = EventBuilder::text_note("Match")
+    let event1 = EventBuilder::new(Kind::TextNote, "Match")
         .custom_created_at(Timestamp::from(2000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
     // For event2, we'll use metadata kind to differentiate
-    let event2_metadata = EventBuilder::metadata(&Metadata::new())
+    let event2_metadata = EventBuilder::new(Kind::Metadata, "{}")
         .custom_created_at(Timestamp::from(2000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let event3 = EventBuilder::text_note("No match - wrong time")
+    let event3 = EventBuilder::new(Kind::TextNote, "No match - wrong time")
         .custom_created_at(Timestamp::from(1000000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -419,16 +419,25 @@ async fn test_complex_query() {
 #[tokio::test]
 async fn test_backend_method() {
     let test_db = setup_test_db().await;
-    let backend = test_db.db.backend();
-    assert_eq!(backend, Backend::Custom("Postgres".to_string()));
+    assert_eq!(test_db.db.backend(), "postgres");
+
+    let features = test_db.db.features();
+    assert!(features.persistent);
+    assert!(!features.event_expiration);
+    assert!(!features.full_text_search);
+    assert!(!features.request_to_vanish);
     cleanup_test_db(&test_db).await;
 }
 
 #[tokio::test]
 async fn test_wipe_not_supported() {
     let test_db = setup_test_db().await;
-    let result = test_db.db.wipe().await;
-    assert!(matches!(result, Err(DatabaseError::NotSupported)));
+    let err = test_db
+        .db
+        .wipe()
+        .await
+        .expect_err("wipe must not be supported");
+    assert_eq!(err.kind(), nostr_database::error::ErrorKind::Unsupported);
     cleanup_test_db(&test_db).await;
 }
 
@@ -438,10 +447,10 @@ async fn test_event_with_multiple_tags() {
     let keys = Keys::generate();
     let other_pubkey1 = Keys::generate().public_key();
     let other_pubkey2 = Keys::generate().public_key();
-    let event_id = EventId::all_zeros();
+    let event_id = EventId::from_byte_array([0; 32]);
 
     // Create event with multiple tags
-    let event = EventBuilder::text_note("Multi-tagged")
+    let event = EventBuilder::new(Kind::TextNote, "Multi-tagged")
         .tags([
             Tag::public_key(other_pubkey1),
             Tag::public_key(other_pubkey2),
@@ -449,7 +458,7 @@ async fn test_event_with_multiple_tags() {
             Tag::hashtag("nostr"),
             Tag::hashtag("test"),
         ])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event).await.unwrap();
@@ -467,79 +476,40 @@ async fn test_event_with_multiple_tags() {
 async fn test_from_pool_constructor() {
     use nostr_postgres_db::{NostrPostgres, postgres_connection_pool};
     use std::env;
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers_modules::postgres::Postgres;
 
-    // Check if DATABASE_URL is set (for CI or manual testing)
-    if let Ok(db_url) = env::var("DATABASE_URL") {
-        // Create a connection pool
-        let pool = postgres_connection_pool(&db_url)
-            .await
-            .expect("Failed to create connection pool");
+    // Use DATABASE_URL when set (CI or manual testing), otherwise start a container
+    let (_container, db_url) = match env::var("DATABASE_URL") {
+        Ok(db_url) => (None, db_url),
+        Err(_) => {
+            let (container, db_url) = start_postgres().await;
+            (Some(container), db_url)
+        }
+    };
 
-        // Create NostrPostgres from pool
-        let db = NostrPostgres::from_pool(pool)
-            .await
-            .expect("Failed to create NostrPostgres from pool");
+    // Create a connection pool
+    let pool = postgres_connection_pool(&db_url)
+        .await
+        .expect("Failed to create connection pool");
 
-        // Test basic functionality
-        let keys = Keys::generate();
-        let event = EventBuilder::text_note("Test from_pool")
-            .sign_with_keys(&keys)
-            .unwrap();
+    // Create NostrPostgres from pool
+    let db = NostrPostgres::from_pool(pool)
+        .await
+        .expect("Failed to create NostrPostgres from pool");
 
-        let status = db.save_event(&event).await.unwrap();
-        assert_eq!(status, SaveEventStatus::Success);
+    // Test basic functionality
+    let keys = Keys::generate();
+    let event = EventBuilder::new(Kind::TextNote, "Test from_pool")
+        .finalize(&keys)
+        .unwrap();
 
-        let retrieved = db.event_by_id(&event.id).await.unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, event.id);
+    let status = db.save_event(&event).await.unwrap();
+    assert_eq!(status, SaveEventStatus::Success);
 
-        // Cleanup
-        let filter = Filter::new();
-        let _ = db.delete(filter).await;
-    } else {
-        // Start PostgreSQL container using testcontainers
-        let container = Postgres::default()
-            .start()
-            .await
-            .expect("Failed to start PostgreSQL container");
+    let retrieved = db.event_by_id(&event.id).await.unwrap();
+    assert!(retrieved.is_some());
+    assert_eq!(retrieved.unwrap().id, event.id);
 
-        let host_port = container
-            .get_host_port_ipv4(5432)
-            .await
-            .expect("Failed to get container port");
-
-        let db_url = format!(
-            "postgres://postgres:postgres@127.0.0.1:{}/postgres",
-            host_port
-        );
-
-        // Create a connection pool
-        let pool = postgres_connection_pool(&db_url)
-            .await
-            .expect("Failed to create connection pool");
-
-        // Create NostrPostgres from pool
-        let db = NostrPostgres::from_pool(pool)
-            .await
-            .expect("Failed to create NostrPostgres from pool");
-
-        // Test basic functionality
-        let keys = Keys::generate();
-        let event = EventBuilder::text_note("Test from_pool")
-            .sign_with_keys(&keys)
-            .unwrap();
-
-        let status = db.save_event(&event).await.unwrap();
-        assert_eq!(status, SaveEventStatus::Success);
-
-        let retrieved = db.event_by_id(&event.id).await.unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, event.id);
-
-        // Cleanup
-        let filter = Filter::new();
-        let _ = db.delete(filter).await;
-    }
+    // Cleanup
+    let filter = Filter::new();
+    let _ = db.delete(filter).await;
 }
