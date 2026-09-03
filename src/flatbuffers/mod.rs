@@ -120,8 +120,11 @@ pub fn decode_event(buf: &[u8]) -> Result<Event, Error> {
         .tags()
         .ok_or(Error::MissingField("tags"))?
         .into_iter()
-        .filter_map(|tag| tag.data().map(Tag::parse))
-        .collect::<Result<Vec<Tag>, _>>()?;
+        .map(|tag| {
+            let data = tag.data().ok_or(Error::MissingField("tag.data"))?;
+            Tag::parse(data).map_err(Error::from)
+        })
+        .collect::<Result<Vec<Tag>, Error>>()?;
 
     Ok(Event::new(
         EventId::from_byte_array(ev.id().ok_or(Error::MissingField("id"))?.0),
@@ -219,6 +222,33 @@ mod tests {
         // and re-encoding with the vendored codec is byte-for-byte identical
         let mut fbb = FlatBufferBuilder::new();
         assert_eq!(encode_event(&event, &mut fbb), unhex(LEGACY_PAYLOAD_HEX));
+    }
+
+    #[test]
+    fn tag_without_data_is_rejected() {
+        let mut fbb = FlatBufferBuilder::new();
+        let empty_tag =
+            event_fbs::StringVector::create(&mut fbb, &event_fbs::StringVectorArgs { data: None });
+        let tags = fbb.create_vector(&[empty_tag]);
+        let content = fbb.create_string("");
+        let bytes32 = event_fbs::Fixed32Bytes::new(&[0; 32]);
+        let sig = event_fbs::Fixed64Bytes::new(&[0; 64]);
+        let args = event_fbs::EventArgs {
+            id: Some(&bytes32),
+            pubkey: Some(&bytes32),
+            created_at: 0,
+            kind: 1,
+            tags: Some(tags),
+            content: Some(content),
+            sig: Some(&sig),
+        };
+        let offset = event_fbs::Event::create(&mut fbb, &args);
+        event_fbs::finish_event_buffer(&mut fbb, offset);
+
+        assert!(matches!(
+            decode_event(fbb.finished_data()),
+            Err(Error::MissingField("tag.data"))
+        ));
     }
 
     #[test]
