@@ -7,8 +7,9 @@ keywords = ["nostr", "database", "postgres"]
 license = "MIT"
 
 [dependencies]
-nostr = { version = "0.44", features = ["std"] }
-nostr-database = { version = "0.44", features = ["flatbuf"] }
+nostr = { version = "0.45", features = ["std"] }
+nostr-database = "0.45"
+flatbuffers = "25.12"
 tracing = { version = "0.1", default-features = false }
 tokio-postgres = { version = "0.7", features = [
   "with-chrono-0_4",
@@ -17,14 +18,17 @@ tokio-postgres = { version = "0.7", features = [
 deadpool-postgres = "0.14"
 
 [dev-dependencies]
-nostr-relay-builder = "0.44"
+# `Keys::generate` needs an OS random source
+nostr = { version = "0.45", features = ["std", "os-rng"] }
+# `nostr-relay-builder` was folded into `nostr-sdk` as the `local-relay` feature
+nostr-sdk = { version = "0.45", features = ["local-relay"] }
 tokio = { version = "1", default-features = false, features = [
   "macros",
   "rt-multi-thread",
+  "time",
 ] }
 tracing-subscriber = "0.3"
-testcontainers = "0.26"
-testcontainers-modules = { version = "0.14", features = ["postgres"] }
+testcontainers = "0.28"
 
 [[example]]
 name = "postgres-relay"

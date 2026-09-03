@@ -33,7 +33,7 @@ async fn test_query_nonexistent_id() {
     let test_db = setup_test_db().await;
 
     // Query for non-existent event
-    let nonexistent_id = EventId::all_zeros();
+    let nonexistent_id = EventId::from_byte_array([0; 32]);
     let result = test_db.db.event_by_id(&nonexistent_id).await.unwrap();
     assert!(result.is_none());
 
@@ -61,8 +61,8 @@ async fn test_large_batch_save() {
     // Save many events
     let event_count = 100;
     for i in 0..event_count {
-        let event = EventBuilder::text_note(format!("Batch event {}", i))
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, format!("Batch event {}", i))
+            .finalize(&keys)
             .unwrap();
         let status = test_db.db.save_event(&event).await.unwrap();
         assert_eq!(status, SaveEventStatus::Success);
@@ -86,8 +86,8 @@ async fn test_query_with_very_large_limit() {
 
     // Create a few events
     for i in 0..5 {
-        let event = EventBuilder::text_note(format!("Event {}", i))
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, format!("Event {}", i))
+            .finalize(&keys)
             .unwrap();
         test_db.db.save_event(&event).await.unwrap();
     }
@@ -108,15 +108,15 @@ async fn test_timestamp_edge_cases() {
     let keys = Keys::generate();
 
     // Event at timestamp 0
-    let event1 = EventBuilder::text_note("At zero")
+    let event1 = EventBuilder::new(Kind::TextNote, "At zero")
         .custom_created_at(Timestamp::from(0))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     // Event at max timestamp
-    let event2 = EventBuilder::text_note("At max")
+    let event2 = EventBuilder::new(Kind::TextNote, "At max")
         .custom_created_at(Timestamp::from(i64::MAX as u64))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -137,7 +137,9 @@ async fn test_event_with_empty_content() {
     let keys = Keys::generate();
 
     // Event with empty content
-    let event = EventBuilder::text_note("").sign_with_keys(&keys).unwrap();
+    let event = EventBuilder::new(Kind::TextNote, "")
+        .finalize(&keys)
+        .unwrap();
 
     let status = test_db.db.save_event(&event).await.unwrap();
     assert_eq!(status, SaveEventStatus::Success);
@@ -157,8 +159,8 @@ async fn test_event_with_unicode_content() {
 
     // Event with various unicode characters
     let unicode_content = "Hello 世界 🌍 Привет مرحبا";
-    let event = EventBuilder::text_note(unicode_content)
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, unicode_content)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event).await.unwrap();
@@ -177,8 +179,8 @@ async fn test_multiple_deletes_same_event() {
     let keys = Keys::generate();
 
     // Create and save event
-    let event = EventBuilder::text_note("To be deleted multiple times")
-        .sign_with_keys(&keys)
+    let event = EventBuilder::new(Kind::TextNote, "To be deleted multiple times")
+        .finalize(&keys)
         .unwrap();
     test_db.db.save_event(&event).await.unwrap();
 
@@ -210,17 +212,17 @@ async fn test_query_ordering() {
     let keys = Keys::generate();
 
     // Create events with specific timestamps
-    let event1 = EventBuilder::text_note("First")
+    let event1 = EventBuilder::new(Kind::TextNote, "First")
         .custom_created_at(Timestamp::from(1000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let event2 = EventBuilder::text_note("Second")
+    let event2 = EventBuilder::new(Kind::TextNote, "Second")
         .custom_created_at(Timestamp::from(2000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
-    let event3 = EventBuilder::text_note("Third")
+    let event3 = EventBuilder::new(Kind::TextNote, "Third")
         .custom_created_at(Timestamp::from(3000))
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     // Save in random order
@@ -255,7 +257,7 @@ async fn test_event_with_special_kinds() {
     ];
 
     for kind in kinds_to_test {
-        let event = EventBuilder::new(kind, "").sign_with_keys(&keys).unwrap();
+        let event = EventBuilder::new(kind, "").finalize(&keys).unwrap();
         let status = test_db.db.save_event(&event).await.unwrap();
         assert_eq!(status, SaveEventStatus::Success);
     }
@@ -275,8 +277,8 @@ async fn test_concurrent_operations() {
         let db_clone = test_db.db.clone();
         let keys_clone = keys.clone();
         let handle = tokio::spawn(async move {
-            let event = EventBuilder::text_note(format!("Concurrent event {}", i))
-                .sign_with_keys(&keys_clone)
+            let event = EventBuilder::new(Kind::TextNote, format!("Concurrent event {}", i))
+                .finalize(&keys_clone)
                 .unwrap();
             db_clone.save_event(&event).await.unwrap()
         });
@@ -306,9 +308,9 @@ async fn test_tag_with_empty_value() {
     let keys = Keys::generate();
 
     // Create event with custom tag with empty value
-    let event = EventBuilder::text_note("Event with empty tag")
+    let event = EventBuilder::new(Kind::TextNote, "Event with empty tag")
         .tags([Tag::hashtag("")])
-        .sign_with_keys(&keys)
+        .finalize(&keys)
         .unwrap();
 
     test_db.db.save_event(&event).await.unwrap();
@@ -328,11 +330,11 @@ async fn test_multiple_authors_same_content() {
 
     // Same content from different authors
     let content = "Identical content";
-    let event1 = EventBuilder::text_note(content)
-        .sign_with_keys(&keys1)
+    let event1 = EventBuilder::new(Kind::TextNote, content)
+        .finalize(&keys1)
         .unwrap();
-    let event2 = EventBuilder::text_note(content)
-        .sign_with_keys(&keys2)
+    let event2 = EventBuilder::new(Kind::TextNote, content)
+        .finalize(&keys2)
         .unwrap();
 
     test_db.db.save_event(&event1).await.unwrap();
@@ -356,8 +358,8 @@ async fn test_limit_zero() {
 
     // Create some events
     for i in 0..5 {
-        let event = EventBuilder::text_note(format!("Event {}", i))
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, format!("Event {}", i))
+            .finalize(&keys)
             .unwrap();
         test_db.db.save_event(&event).await.unwrap();
     }
@@ -379,8 +381,8 @@ async fn test_filter_combination_no_matches() {
     let keys2 = Keys::generate();
 
     // Create event from keys1
-    let event = EventBuilder::text_note("Test")
-        .sign_with_keys(&keys1)
+    let event = EventBuilder::new(Kind::TextNote, "Test")
+        .finalize(&keys1)
         .unwrap();
     test_db.db.save_event(&event).await.unwrap();
 

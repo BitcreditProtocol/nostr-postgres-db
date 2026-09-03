@@ -1,5 +1,4 @@
 use nostr::filter::Filter;
-use nostr_database::*;
 
 pub fn filter_to_sql_params(
     base_query: &str,
@@ -145,7 +144,7 @@ mod tests {
 
     #[test]
     fn test_filter_to_sql_params_with_ids() {
-        let event_id = EventId::all_zeros();
+        let event_id = EventId::from_byte_array([0; 32]);
         let filter = Filter::new().ids([event_id]);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
         let (sql, params) = filter_to_sql_params(base_query, &filter, true);
@@ -234,7 +233,7 @@ mod tests {
         values.insert("value2".to_string());
         filter
             .generic_tags
-            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+            .insert(SingleLetterTag::from_char('e').unwrap(), values);
         let base_query = "SELECT * FROM events WHERE deleted = FALSE";
         let (sql, params) = filter_to_sql_params(base_query, &filter, true);
 
@@ -288,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_has_filters_with_ids() {
-        let filter = Filter::new().ids([EventId::all_zeros()]);
+        let filter = Filter::new().ids([EventId::from_byte_array([0; 32])]);
         assert!(has_filters(&filter));
     }
 
@@ -325,7 +324,7 @@ mod tests {
         values.insert("value".to_string());
         filter
             .generic_tags
-            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+            .insert(SingleLetterTag::from_char('e').unwrap(), values);
         assert!(has_filters(&filter));
     }
 
@@ -355,7 +354,7 @@ mod tests {
         values.insert("value".to_string());
         filter
             .generic_tags
-            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+            .insert(SingleLetterTag::from_char('e').unwrap(), values);
 
         let sql = count_query_for_filter(&filter);
 
@@ -385,7 +384,7 @@ mod tests {
         values.insert("value".to_string());
         filter
             .generic_tags
-            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+            .insert(SingleLetterTag::from_char('e').unwrap(), values);
 
         let sql = select_events_query_for_filter(&filter);
 
@@ -415,7 +414,7 @@ mod tests {
         values.insert("value".to_string());
         filter
             .generic_tags
-            .insert(SingleLetterTag::lowercase(Alphabet::E), values);
+            .insert(SingleLetterTag::from_char('e').unwrap(), values);
 
         let sql = select_event_ids_query_for_filter(&filter);
 

@@ -3,8 +3,9 @@
 Postgres SQL storage backend for Nostr relays.
 
 It implements `nostr-database`'s `NostrDatabase` trait, so it drops into anything
-built on [rust-nostr](https://github.com/rust-nostr/nostr) that takes a database —
-`nostr-relay-builder`, for instance — in place of the in-memory or LMDB backends.
+built on [Nostr Dev Kit](https://github.com/nostrdevkit/nostr) (formerly rust-nostr)
+that takes a database — `nostr-sdk`'s local relay, for instance — in place of the
+in-memory or LMDB backends.
 
 The code was extracted from the Nostr SDK; the MIT licence and its copyright
 (Rust Nostr Developers) come with it.
@@ -35,25 +36,21 @@ backend rather than something you call directly.
 ```rust
 use std::time::Duration;
 
-use nostr_database::prelude::*;
 use nostr_postgres_db::NostrPostgres;
-use nostr_relay_builder::prelude::*;
+use nostr_sdk::prelude::*;
 
 // Your database URL
 const DB_URL: &str = "postgres://postgres:password@localhost:5432";
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
     // Create a nostr db instance and run pending db migrations if any
     let db = NostrPostgres::new(DB_URL).await?;
 
-    // Add db to builder
-    let builder = RelayBuilder::default().database(db);
-
-    // Create local relay
-    let relay = LocalRelay::new(builder);
+    // Create a local relay backed by Postgres
+    let relay = LocalRelay::builder().database(db).build();
     relay.run().await?;
     println!("Url: {}", relay.url().await);
 
@@ -69,8 +66,13 @@ async fn main() -> Result<()> {
 Postgres, reachable at the connection string you pass. Both `NostrPostgres::new` and
 `from_pool` apply the migrations in `src/migrations.rs`, so an empty database is fine.
 
-Dependency floor, from `Cargo.toml`: `nostr` 0.44, `nostr-database` 0.44 (with
-`flatbuf`), `tokio-postgres` 0.7, `deadpool-postgres` 0.14.
+Dependency floor, from `Cargo.toml`: `nostr` 0.45, `nostr-database` 0.45,
+`flatbuffers` 25.12, `tokio-postgres` 0.7, `deadpool-postgres` 0.14.
+
+Events are stored in the `payload` column as FlatBuffers, using the schema
+`nostr-database` shipped up to 0.44. That crate dropped its `flatbuf` feature in 0.45,
+so the schema and codec now live in `src/flatbuffers/`; databases written by earlier
+versions of this crate keep working unchanged.
 
 ## Tests
 
