@@ -24,7 +24,7 @@ tokio = { version = "1", default-features = false, features = [
 ] }
 tracing-subscriber = "0.3"
 testcontainers = "0.26"
-testcontainers-modules = { version = "0.14", features = ["postgres"] }
+testcontainers-modules = { version = "0.15", features = ["postgres"] }
 
 [[example]]
 name = "postgres-relay"
