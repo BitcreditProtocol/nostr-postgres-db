@@ -8,7 +8,7 @@ license = "MIT"
 
 [dependencies]
 nostr = { version = "0.44", features = ["std"] }
-nostr-database = { version = "0.44", features = ["flatbuf"] }
+nostr-database = { version = "0.45", features = ["flatbuf"] }
 tracing = { version = "0.1", default-features = false }
 tokio-postgres = { version = "0.7", features = [
   "with-chrono-0_4",
