@@ -1,3 +1,4 @@
+mod flatbuffers;
 mod migrations;
 mod model;
 mod postgres;

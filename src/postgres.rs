@@ -1,14 +1,21 @@
+use std::collections::BTreeSet;
+use std::future::Future;
+use std::pin::Pin;
+
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod};
-use nostr::event::*;
+use nostr::event::{Event, EventId};
 use nostr::filter::Filter;
 use nostr::types::Timestamp;
-use nostr_database::*;
-use prelude::BoxedFuture;
+use nostr_database::error::Error;
+use nostr_database::{
+    DatabaseEventStatus, Features, NostrDatabase, RejectedReason, SaveEventStatus,
+};
 use tokio_postgres::NoTls;
 use tokio_postgres::types::ToSql;
 use tracing::warn;
 
 use super::model::{EventDataDb, EventDb};
+use crate::flatbuffers;
 use crate::query::{
     count_query_for_filter, filter_to_sql_params, select_event_ids_query_for_filter,
     select_events_query_for_filter, with_limit,
@@ -16,6 +23,9 @@ use crate::query::{
 
 /// Shorthand for a pooled database connection
 pub type PostgresConnection = Object;
+
+/// The future type returned by the [`NostrDatabase`] trait methods
+type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Inplements NostrDatabase trait for a Postgres database backend
 #[derive(Clone)]
@@ -25,7 +35,7 @@ pub struct NostrPostgres {
 
 impl NostrPostgres {
     /// Create a new [`NostrPostgres`] instance
-    pub async fn new<C>(connection_string: C) -> Result<Self, DatabaseError>
+    pub async fn new<C>(connection_string: C) -> Result<Self, Error>
     where
         C: AsRef<str>,
     {
@@ -37,21 +47,18 @@ impl NostrPostgres {
     /// Create a new [`NostrPostgres`] instance from an existing connection pool
     ///
     /// This method will run database migrations on the provided pool.
-    pub async fn from_pool(pool: Pool) -> Result<Self, DatabaseError> {
+    pub async fn from_pool(pool: Pool) -> Result<Self, Error> {
         crate::migrations::run_migrations(&pool).await?;
         Ok(Self { pool })
     }
 
-    pub(crate) async fn get_connection(&self) -> Result<PostgresConnection, DatabaseError> {
-        self.pool.get().await.map_err(DatabaseError::backend)
+    pub(crate) async fn get_connection(&self) -> Result<PostgresConnection, Error> {
+        self.pool.get().await.map_err(Error::storage)
     }
 
-    pub(crate) async fn save(
-        &self,
-        event_data: EventDataDb,
-    ) -> Result<SaveEventStatus, DatabaseError> {
+    pub(crate) async fn save(&self, event_data: EventDataDb) -> Result<SaveEventStatus, Error> {
         let mut db = self.get_connection().await?;
-        let tx = db.transaction().await.map_err(DatabaseError::backend)?;
+        let tx = db.transaction().await.map_err(Error::storage)?;
         if tx.execute(r#"INSERT INTO events (id, pubkey, created_at, kind, payload, deleted) VALUES ($1, $2, $3, $4, $5, $6)"#, &[
             &event_data.event.id,
             &event_data.event.pubkey,
@@ -67,7 +74,7 @@ impl NostrPostgres {
         let stmt = tx
             .prepare(r#"INSERT INTO event_tags (tag, tag_value, event_id) VALUES ($1, $2, $3)"#)
             .await
-            .map_err(DatabaseError::backend)?;
+            .map_err(Error::storage)?;
 
         for tag in event_data.tags {
             if let Err(e) = tx
@@ -78,14 +85,11 @@ impl NostrPostgres {
             }
         }
 
-        tx.commit().await.map_err(DatabaseError::backend)?;
+        tx.commit().await.map_err(Error::storage)?;
         Ok(SaveEventStatus::Success)
     }
 
-    pub(crate) async fn event_by_id(
-        &self,
-        event_id: &EventId,
-    ) -> Result<Option<EventDb>, DatabaseError> {
+    pub(crate) async fn event_by_id(&self, event_id: &EventId) -> Result<Option<EventDb>, Error> {
         let db = self.get_connection().await?;
         let query =
             r#"SELECT id, pubkey, created_at, kind, payload, deleted FROM events WHERE id = $1"#;
@@ -93,15 +97,24 @@ impl NostrPostgres {
         let result: Option<EventDb> = db
             .query_opt(query, &[&event_id.as_bytes().to_vec()])
             .await
-            .map_err(DatabaseError::backend)?
+            .map_err(Error::storage)?
             .map(|row| row.into());
         Ok(result)
     }
 }
 
 impl NostrDatabase for NostrPostgres {
-    fn backend(&self) -> Backend {
-        Backend::Custom("Postgres".to_string())
+    fn backend(&self) -> &'static str {
+        "postgres"
+    }
+
+    fn features(&self) -> Features {
+        Features {
+            persistent: true,
+            event_expiration: false,
+            full_text_search: false,
+            request_to_vanish: false,
+        }
     }
 
     /// Save [`Event`] into store
@@ -110,7 +123,7 @@ impl NostrDatabase for NostrPostgres {
     fn save_event<'a>(
         &'a self,
         event: &'a Event,
-    ) -> BoxedFuture<'a, Result<SaveEventStatus, DatabaseError>> {
+    ) -> BoxedFuture<'a, Result<SaveEventStatus, Error>> {
         Box::pin(async move {
             let result = self.save(EventDataDb::try_from(event)?).await;
             let until = if event.created_at.is_zero() {
@@ -141,7 +154,7 @@ impl NostrDatabase for NostrPostgres {
     fn check_id<'a>(
         &'a self,
         event_id: &'a EventId,
-    ) -> BoxedFuture<'a, Result<DatabaseEventStatus, DatabaseError>> {
+    ) -> BoxedFuture<'a, Result<DatabaseEventStatus, Error>> {
         Box::pin(async move {
             let status = match self.event_by_id(event_id).await? {
                 Some(e) if e.deleted => DatabaseEventStatus::Deleted,
@@ -156,11 +169,11 @@ impl NostrDatabase for NostrPostgres {
     fn event_by_id<'a>(
         &'a self,
         event_id: &'a EventId,
-    ) -> BoxedFuture<'a, Result<Option<Event>, DatabaseError>> {
+    ) -> BoxedFuture<'a, Result<Option<Event>, Error>> {
         Box::pin(async move {
             let event = match self.event_by_id(event_id).await? {
                 Some(e) if !e.deleted => {
-                    Some(Event::decode(&e.payload).map_err(DatabaseError::backend)?)
+                    Some(flatbuffers::decode_event(&e.payload).map_err(Error::storage)?)
                 }
                 _ => None,
             };
@@ -171,7 +184,7 @@ impl NostrDatabase for NostrPostgres {
     /// Count the number of events found with [`Filter`].
     ///
     /// Use `Filter::new()` or `Filter::default()` to count all events.
-    fn count(&self, filter: Filter) -> BoxedFuture<'_, Result<usize, DatabaseError>> {
+    fn count(&self, filter: Filter) -> BoxedFuture<'_, Result<usize, Error>> {
         Box::pin(async move {
             let base_query = count_query_for_filter(&filter);
             let (sql, params) = filter_to_sql_params(base_query, &filter, false);
@@ -192,11 +205,12 @@ impl NostrDatabase for NostrPostgres {
     }
 
     /// Query stored events.
-    fn query(&self, filter: Filter) -> BoxedFuture<'_, Result<Events, DatabaseError>> {
+    ///
+    /// The result is ordered like [`Event`] itself: newest first, ties broken by id.
+    fn query(&self, filter: Filter) -> BoxedFuture<'_, Result<BTreeSet<Event>, Error>> {
         let filter = with_limit(filter, 10000);
         Box::pin(async move {
             let base_query = select_events_query_for_filter(&filter);
-            let mut events = Events::new(&filter);
             let (sql, params) = filter_to_sql_params(base_query, &filter, true);
 
             let param_slice = &params
@@ -209,14 +223,18 @@ impl NostrDatabase for NostrPostgres {
                 .await?
                 .query(&sql, param_slice.as_slice())
                 .await
-                .map_err(DatabaseError::backend)?
+                .map_err(Error::storage)?
                 .into_iter()
                 .map(|e| e.into())
                 .collect();
 
-            for item in result.into_iter() {
-                if let Ok(event) = Event::decode(&item.payload) {
-                    events.insert(event);
+            let mut events = BTreeSet::new();
+            for item in result {
+                match flatbuffers::decode_event(&item.payload) {
+                    Ok(event) => {
+                        events.insert(event);
+                    }
+                    Err(e) => warn!("Failed to decode stored event: {e}"),
                 }
             }
             Ok(events)
@@ -224,7 +242,7 @@ impl NostrDatabase for NostrPostgres {
     }
 
     /// Delete all events that match the [Filter]
-    fn delete(&self, filter: Filter) -> BoxedFuture<'_, Result<(), DatabaseError>> {
+    fn delete(&self, filter: Filter) -> BoxedFuture<'_, Result<(), Error>> {
         let filter = with_limit(filter, 999);
         Box::pin(async move {
             let base_query = select_event_ids_query_for_filter(&filter);
@@ -239,7 +257,7 @@ impl NostrDatabase for NostrPostgres {
                 .await?
                 .query(&sql, param_slice.as_slice())
                 .await
-                .map_err(DatabaseError::backend)?
+                .map_err(Error::storage)?
                 .into_iter()
                 .map(|e| e.get(0))
                 .collect();
@@ -253,14 +271,18 @@ impl NostrDatabase for NostrPostgres {
                 .await?
                 .execute(update_query, &[&delete_ids])
                 .await
-                .map_err(DatabaseError::backend)?;
+                .map_err(Error::storage)?;
 
             Ok(())
         })
     }
 
-    fn wipe(&self) -> BoxedFuture<'_, prelude::Result<(), DatabaseError>> {
-        Box::pin(async move { Err(DatabaseError::NotSupported) })
+    fn wipe(&self) -> BoxedFuture<'_, Result<(), Error>> {
+        Box::pin(async move {
+            Err(Error::unsupported(
+                "wipe is not supported by the postgres backend",
+            ))
+        })
     }
 }
 
@@ -281,14 +303,14 @@ impl std::fmt::Debug for NostrPostgres {
 
 pub async fn postgres_connection_pool(
     connection_string: &str,
-) -> Result<deadpool_postgres::Pool, DatabaseError> {
-    let cfg: tokio_postgres::Config = connection_string.parse().map_err(DatabaseError::backend)?;
+) -> Result<deadpool_postgres::Pool, Error> {
+    let cfg: tokio_postgres::Config = connection_string.parse().map_err(Error::storage)?;
     let mgr_config = ManagerConfig {
         recycling_method: RecyclingMethod::Fast,
     };
     let pool = Pool::builder(Manager::from_config(cfg, NoTls, mgr_config))
         .max_size(16)
         .build()
-        .map_err(DatabaseError::backend)?;
+        .map_err(Error::storage)?;
     Ok(pool)
 }

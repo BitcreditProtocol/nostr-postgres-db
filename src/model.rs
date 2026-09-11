@@ -1,8 +1,10 @@
 use std::sync::{Mutex, OnceLock};
 
 use nostr::event::Event;
-use nostr_database::{DatabaseError, FlatBufferBuilder, FlatBufferEncode};
+use nostr_database::error::Error;
 use tokio_postgres::Row;
+
+use crate::flatbuffers::{self, FlatBufferBuilder};
 
 /// DB representation of [`Event`]
 #[derive(Debug, Clone)]
@@ -54,7 +56,7 @@ pub struct EventDataDb {
 }
 
 impl TryFrom<&Event> for EventDataDb {
-    type Error = DatabaseError;
+    type Error = Error;
     fn try_from(value: &Event) -> Result<Self, Self::Error> {
         Ok(Self {
             event: EventDb {
@@ -76,8 +78,8 @@ fn encode_payload(value: &Event) -> Vec<u8> {
         .get_or_init(|| Mutex::new(FlatBufferBuilder::new()))
         .lock()
     {
-        Ok(mut fb_builder) => value.encode(&mut fb_builder).to_vec(),
-        Err(_) => value.encode(&mut FlatBufferBuilder::new()).to_vec(),
+        Ok(mut fb_builder) => flatbuffers::encode_event(value, &mut fb_builder).to_vec(),
+        Err(_) => flatbuffers::encode_event(value, &mut FlatBufferBuilder::new()).to_vec(),
     }
 }
 
@@ -103,13 +105,12 @@ fn extract_tags(event: &Event) -> Vec<EventTagDb> {
 mod tests {
     use super::*;
     use nostr::prelude::*;
-    use nostr_database::FlatBufferDecode;
 
     #[test]
     fn test_event_data_db_try_from_event() {
         let keys = Keys::generate();
-        let event = EventBuilder::text_note("test content")
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, "test content")
+            .finalize(&keys)
             .unwrap();
 
         let event_data = EventDataDb::try_from(&event).unwrap();
@@ -129,13 +130,13 @@ mod tests {
     fn test_event_data_db_with_tags() {
         let keys = Keys::generate();
         let other_pubkey = Keys::generate().public_key();
-        let event = EventBuilder::text_note("test content")
+        let event = EventBuilder::new(Kind::TextNote, "test content")
             .tags([
                 Tag::public_key(other_pubkey),
-                Tag::event(EventId::all_zeros()),
+                Tag::event(EventId::from_byte_array([0; 32])),
                 Tag::hashtag("nostr"),
             ])
-            .sign_with_keys(&keys)
+            .finalize(&keys)
             .unwrap();
 
         let event_data = EventDataDb::try_from(&event).unwrap();
@@ -157,8 +158,8 @@ mod tests {
     #[test]
     fn test_extract_tags_empty() {
         let keys = Keys::generate();
-        let event = EventBuilder::text_note("no tags")
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, "no tags")
+            .finalize(&keys)
             .unwrap();
 
         let tags = extract_tags(&event);
@@ -169,16 +170,16 @@ mod tests {
     fn test_extract_tags_with_various_types() {
         let keys = Keys::generate();
         let other_pubkey = Keys::generate().public_key();
-        let event_id = EventId::all_zeros();
+        let event_id = EventId::from_byte_array([0; 32]);
 
-        let event = EventBuilder::text_note("test")
+        let event = EventBuilder::new(Kind::TextNote, "test")
             .tags([
                 Tag::public_key(other_pubkey),
                 Tag::event(event_id),
                 Tag::hashtag("rust"),
                 Tag::identifier("test-id"),
             ])
-            .sign_with_keys(&keys)
+            .finalize(&keys)
             .unwrap();
 
         let tags = extract_tags(&event);
@@ -196,8 +197,8 @@ mod tests {
     #[test]
     fn test_encode_payload_produces_valid_flatbuffer() {
         let keys = Keys::generate();
-        let event = EventBuilder::text_note("test content")
-            .sign_with_keys(&keys)
+        let event = EventBuilder::new(Kind::TextNote, "test content")
+            .finalize(&keys)
             .unwrap();
 
         let payload = encode_payload(&event);
@@ -206,7 +207,7 @@ mod tests {
         assert!(!payload.is_empty());
 
         // Should be able to decode the payload back
-        let decoded = Event::decode(&payload).unwrap();
+        let decoded = flatbuffers::decode_event(&payload).unwrap();
         assert_eq!(decoded.id, event.id);
         assert_eq!(decoded.content, event.content);
     }

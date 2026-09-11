@@ -78,17 +78,13 @@ The tests will detect this and skip container creation.
 
 ### PostgreSQL Version
 
-The tests use the default PostgreSQL image from testcontainers-modules, which is PostgreSQL 16.
+The tests start the official `postgres:16-alpine` image through testcontainers'
+`GenericImage`; see `start_postgres()` in `tests/common/mod.rs`.
 
-To use a different version, modify `tests/common/mod.rs`:
+To use a different version, change the tag constant there:
 
 ```rust
-use testcontainers_modules::postgres::Postgres;
-
-Postgres::default()
-    .with_tag("15")  // Use PostgreSQL 15
-    .start()
-    .await
+pub const POSTGRES_TAG: &str = "15-alpine"; // Use PostgreSQL 15
 ```
 
 ### Connection Parameters
@@ -181,5 +177,5 @@ docker pull postgres:16-alpine
 ## Resources
 
 - [testcontainers-rs documentation](https://docs.rs/testcontainers/)
-- [testcontainers-modules](https://github.com/testcontainers/testcontainers-rs-modules-community)
+- [`GenericImage`](https://docs.rs/testcontainers/latest/testcontainers/struct.GenericImage.html)
 - [Testcontainers official site](https://www.testcontainers.org/)
