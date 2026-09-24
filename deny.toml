@@ -1,0 +1,10 @@
+# Without an allow list cargo deny rejects every licence, MIT included. These four are the ones
+# cargo deny needs for this crate's dependency graph as of 2026-09-22, a subset of bcr-common's
+# policy; a dependency bringing a new licence should fail here and be added on purpose.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+]
